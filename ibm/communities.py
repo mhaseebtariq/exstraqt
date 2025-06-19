@@ -34,13 +34,10 @@ def get_communities_chunk(nodes_loc, graph_loc):
     graph = load_dump(graph_loc)
     communities = []
     for node in nodes:
-        mode_community = set()
-        for mode in ["in", "out"]:
-            neighborhood = graph.neighborhood(node, order=3, mode=mode, mindist=0)
-            neighborhood = {x["name"] for x in graph.vs(neighborhood)}
-            sub_g = graph.induced_subgraph(neighborhood)
-            mode_community = mode_community.union(get_top_n(sub_g, [node]))
-        communities.append((node, mode_community))
+        neighborhood = graph.neighborhood(node, order=2, mode="all", mindist=0)
+        neighborhood = {x["name"] for x in graph.vs(neighborhood)}
+        sub_g = graph.induced_subgraph(neighborhood)
+        communities.append((node, get_top_n(sub_g, [node])))
     dump_object_for_proc(communities, False)
 
 
