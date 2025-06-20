@@ -108,7 +108,7 @@ def get_segments(source_column, target_column, data_in):
     return source_or_target, source_and_target, source_only, target_only
 
 
-def generate_features(df, group_id, graph_features=False):
+def generate_features(df, group_id, graph_features=False, graph_obj=None):
     source_or_target, source_and_target, source_only, target_only = get_segments(
         "source", "target", df
     )
@@ -169,7 +169,10 @@ def generate_features(df, group_id, graph_features=False):
     features_row["ts_weighted_std"] = weighted_std(df["window_delta"], df["amount"])
 
     if graph_features:
-        graph = ig.Graph.DataFrame(df[["source", "target"]], use_vids=False, directed=True)
+        if graph_obj is None:
+            graph = ig.Graph.DataFrame(df[["source", "target"]], use_vids=False, directed=True)
+        else:
+            graph = graph_obj
         features_row["assortativity_degree"] = graph.assortativity_degree(directed=True)
         features_row["assortativity_degree_ud"] = graph.assortativity_degree(directed=False)
         features_row["max_degree"] = max(graph.degree(mode="all"))
@@ -193,39 +196,47 @@ def generate_features(df, group_id, graph_features=False):
 
     return features_row
 
-def get_features_chunk(df_chunk, graph_features):
+def get_features_chunk(comms_chunk, graph, graph_features):
     features_all = []
-    if isinstance(df_chunk, pd.DataFrame):
-        df_chunk = df_chunk.groupby("id")
-    for key_, group in df_chunk:
-        features_all.append(generate_features(group, key_, graph_features=graph_features))
+    if graph_features:
+        for key_, group in comms_chunk:
+            sub_g = graph.induced_subgraph(group)
+            group = sub_g.get_edge_dataframe()
+            if group.empty:
+                continue
+            features_all.append(generate_features(group, key_, graph_features=graph_features, graph_obj=sub_g))
+    else:
+        for key_, group in comms_chunk:
+            features_all.append(generate_features(group, key_, graph_features=graph_features, graph_obj=None))
     features_all = pd.DataFrame(features_all)
     found_types = {k: v for k, v in types.items() if k in features_all.columns}
     dump_object_for_proc(features_all.astype(found_types), False, pandas=True)
 
 
-def get_features_chunk_with_gf(chunk_loc):
-    return get_features_chunk(pd.read_parquet(chunk_loc), True)
+def get_features_chunk_with_gf(chunk_loc, graph_loc):
+    return get_features_chunk(load_dump(chunk_loc), load_dump(graph_loc), True)
 
 
 def get_features_chunk_without_gf(chunk_loc):
-    return get_features_chunk(load_dump(chunk_loc), False)
+    return get_features_chunk(load_dump(chunk_loc), None, False)
 
 
-def get_features_multi_proc(chunks_locations, proc, reset_staging=False):
+def get_features_multi_proc(chunks_locations, graph_location, proc, reset_staging=False):
     if reset_staging:
         reset_multi_proc_staging()
     process_ids = set()
     for chunk_location in chunks_locations:
         process_id = str(uuid.uuid4())
         args = construct_arguments(chunk_location)
+        if graph_location is not None:
+            args = construct_arguments(chunk_location, graph_location)
         os.system(f"{sys.executable} spawn.py {process_id} {proc} {args} &")
         process_ids = process_ids.union([process_id])
     wait_for_processes(process_ids)
     return collect_multi_proc_output(pandas=True)
 
 
-def pov_features(group_id, group):
+def get_pov_features(group_id, group):
     src, tgt = group_id
     currency_turnover = (
         group

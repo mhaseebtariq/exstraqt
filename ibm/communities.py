@@ -9,8 +9,7 @@ from common import (
 )
 
 
-THRESHOLD_RANK = 0.01
-NEIGHBORS_ONLY = False
+THRESHOLD_RANK = 0.005
 
 
 def get_top_n(sub_graph, queries):
