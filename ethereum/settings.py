@@ -16,3 +16,9 @@ STAGED_DATA_CSV_LOCATION = os.path.join(MAIN_LOCATION, "staged-transactions.csv"
 STAGED_PATTERNS_CSV_LOCATION = os.path.join(MAIN_LOCATION, "staged-patterns.txt")
 DATA_FILE = os.path.join(MAIN_LOCATION, f"{ILLICIT_TYPE}-{FILE_SIZE}_Trans.csv")
 PATTERNS_FILE = os.path.join(MAIN_LOCATION, f"{ILLICIT_TYPE}-{FILE_SIZE}_Patterns.txt")
+
+G_COMM_PREFIX = "graph_comm_feat_"
+G_1HOP_PREFIX = "graph_1_hop_feat_"
+G_GLOB_PREFIX = "graph_global_"
+
+assert G_COMM_PREFIX != G_1HOP_PREFIX != G_GLOB_PREFIX
