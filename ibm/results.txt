@@ -1,2 +1,4 @@
-HI-Small: 75.39 ±0.61
-Ethereum: 61.10 ±0.69
+HI-Small: 75.02 ±0.55
+LI-Small: 35.07 ±2.69
+
+Ethereum: 64.11 ±0.87

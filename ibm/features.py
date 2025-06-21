@@ -155,7 +155,7 @@ def generate_features(df, group_id, graph_features=False, graph_obj=None):
     turnover = float(result[result["delta"] > 0]["delta"].sum())
     turnover_currency_norm = {}
     for key, value in turnover_currency.items():
-        turnover_currency_norm[key] = float((currency_rates[key] * value) / turnover)
+        turnover_currency_norm[key] = float((currency_rates[key] * value) / (turnover or 1))
 
     features_row["turnover"] = turnover
     features_row.update(turnover_currency_norm)
