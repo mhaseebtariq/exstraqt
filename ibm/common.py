@@ -116,4 +116,31 @@ def wait_for_processes(process_ids):
                 proc.kill()
             except psutil.NoSuchProcess:
                 pass
-    
+
+
+def get_weights(data_aggregated):
+    source_totals = (
+        data_aggregated.groupby("source")
+        .agg({"amount": "sum"})["amount"]
+        .to_dict()
+    )
+    target_totals = (
+        data_aggregated.groupby("target")
+        .agg({"amount": "sum"})["amount"]
+        .to_dict()
+    )
+
+    data_aggregated.loc[:, "total_sent_by_source"] = data_aggregated.loc[
+        :, "source"
+    ].apply(lambda x: source_totals[x])
+    data_aggregated.loc[:, "total_received_by_target"] = data_aggregated.loc[
+        :, "target"
+    ].apply(lambda x: target_totals[x])
+    data_aggregated.loc[:, "weight"] = data_aggregated.apply(
+        lambda x: (
+            (x["amount"] / x["total_sent_by_source"])
+            + (x["amount"] / x["total_received_by_target"])
+        ),
+        axis=1,
+    )
+    return data_aggregated.loc[:, ["source", "target", "weight"]]

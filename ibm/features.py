@@ -1,3 +1,4 @@
+import json
 import os
 import pickle
 import sys
@@ -118,7 +119,7 @@ def generate_features(df, group_id, graph_features=False, graph_obj=None):
         "num_source_and_target": len(source_and_target),
         "num_source_only": len(source_only),
         "num_target_only": len(target_only),
-        "num_transactions": df.shape[0],
+        "num_transactions": df["num_transactions"].sum(),
         "num_currencies": df["source_currency"].nunique(),
     }
     source_or_target, source_and_target, source_only, target_only = get_segments(
@@ -160,13 +161,17 @@ def generate_features(df, group_id, graph_features=False, graph_obj=None):
     features_row["turnover"] = turnover
     features_row.update(turnover_currency_norm)
 
-    features_row["ts_range"] = df["window_delta"].max() - df["window_delta"].min()
-    features_row["ts_std"] = df["window_delta"].std()
-    features_row["ts_weighted_mean"] = np.average(df["window_delta"], weights=df["amount"])
-    features_row["ts_weighted_median"] = weighted_quantiles(
-        df["window_delta"].values, weights=df["amount"].values, quantiles=0.5, interpolate=True
+    exploded = pd.DataFrame(
+        df["timestamps_amounts"].apply(json.loads).explode().tolist(), columns=["ts", "amount"]
     )
-    features_row["ts_weighted_std"] = weighted_std(df["window_delta"], df["amount"])
+
+    features_row["ts_range"] = exploded["ts"].max() - exploded["ts"].min()
+    features_row["ts_std"] = exploded["ts"].std()
+    features_row["ts_weighted_mean"] = np.average(exploded["ts"], weights=exploded["amount"])
+    features_row["ts_weighted_median"] = weighted_quantiles(
+        exploded["ts"].values, weights=exploded["amount"].values, quantiles=0.5, interpolate=True
+    )
+    features_row["ts_weighted_std"] = weighted_std(exploded["ts"], exploded["amount"])
 
     if graph_features:
         if graph_obj is None:
@@ -195,6 +200,7 @@ def generate_features(df, group_id, graph_features=False, graph_obj=None):
         features_row["diameter_bank"] = graph.diameter(directed=True, unconn=True)
 
     return features_row
+
 
 def get_features_chunk(comms_chunk, graph, graph_features):
     features_all = []
@@ -236,7 +242,7 @@ def get_features_multi_proc(chunks_locations, graph_location, proc, reset_stagin
     return collect_multi_proc_output(pandas=True)
 
 
-def get_pov_features(group_id, group):
+def get_edge_features(group_id, group):
     src, tgt = group_id
     currency_turnover = (
         group
@@ -254,5 +260,4 @@ def get_pov_features(group_id, group):
     ).to_dict()["amount"]
     format_turnover = {k.lower().replace(" ", "_"): v / total for k, v in format_turnover.items()}
     row.update(format_turnover)
-    row["is_laundering"] = group["is_laundering"].max()
     return row

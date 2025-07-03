@@ -1,4 +1,31 @@
-HI-Small: 75.02 ±0.55
-LI-Small: 35.07 ±2.69
+HI-Small: 75.02 ±0.55   ~16%
+LI-Small: 35.07 ±2.69   ~24%
+HI-Medium: 69.79
+LI-Medium: 30.41
 
-Ethereum: 64.11 ±0.87
+Ethereum: 64.11 ±0.87   ~20%
+
+
+ts_min = data.select(sf.min("timestamp").alias("x")).collect()[0]["x"] - timedelta(minutes=1)
+
+
+sf.count("source").alias("num_transactions"),
+sf.count("amount").alias("amount"),
+sf.collect_set("source_currency").alias("currencies"),
+sf.collect_set(sf.array(sf.col("source_bank"), sf.col("target_bank"))).alias("banks"),
+sf.collect_list(sf.array((sf.col("timestamp") - ts_min).cast("long").alias("window_delta"), sf.col("amount"))).alias("timestamps_amounts"),
+sf.collect_list(sf.array(sf.col("source_currency"), sf.col("source_amount"))).alias("currencies_amounts"),
+
+
+45398
+
+
+source-x -> [target-y  source-y] -> target-z
+
+
+target-y <- [source-z  target-z] <- source-x
+
+
+source-x -> target-z -> target-y
+
+
