@@ -21,6 +21,7 @@ STAGED_CASES_DATA_LOCATION = os.path.join(
 STAGED_DATA_CSV_LOCATION = os.path.join(MAIN_LOCATION, f"staged-transactions{OUTPUT_POSTFIX}.csv")
 STAGED_PATTERNS_CSV_LOCATION = os.path.join(MAIN_LOCATION, f"staged-patterns{OUTPUT_POSTFIX}.txt")
 
+G_FLOW_PREFIX = "graph_flow_feat_"
 G_COMM_PREFIX = "graph_comm_feat_"
 G_1HOP_PREFIX = "graph_1_hop_feat_"
 G_GLOB_PREFIX = "graph_global_"

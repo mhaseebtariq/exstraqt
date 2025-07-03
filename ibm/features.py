@@ -1,4 +1,3 @@
-import json
 import os
 import pickle
 import sys
@@ -162,7 +161,7 @@ def generate_features(df, group_id, graph_features=False, graph_obj=None):
     features_row.update(turnover_currency_norm)
 
     exploded = pd.DataFrame(
-        df["timestamps_amounts"].apply(json.loads).explode().tolist(), columns=["ts", "amount"]
+        df["timestamps_amounts"].explode().tolist(), columns=["ts", "amount"]
     )
 
     features_row["ts_range"] = exploded["ts"].max() - exploded["ts"].min()
@@ -261,3 +260,22 @@ def get_edge_features(group_id, group):
     format_turnover = {k.lower().replace(" ", "_"): v / total for k, v in format_turnover.items()}
     row.update(format_turnover)
     return row
+
+
+def get_edge_features_chunk(chunk_loc):
+    edge_features = []
+    for group_id, group in load_dump(chunk_loc):
+        edge_features.append(get_edge_features(group_id, group))
+    dump_object_for_proc(pd.DataFrame(edge_features), False, pandas=True)
+    
+
+def get_edge_features_multi_proc(chunks_locations):
+    process_ids = set()
+    for chunk_location in chunks_locations:
+        process_id = str(uuid.uuid4())
+        args = construct_arguments(chunk_location)
+        os.system(f"{sys.executable} spawn.py {process_id} features.get_edge_features_chunk {args} &")
+        process_ids = process_ids.union([process_id])
+    wait_for_processes(process_ids)
+    return collect_multi_proc_output(pandas=True)
+    
