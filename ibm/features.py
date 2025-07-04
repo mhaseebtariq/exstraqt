@@ -1,3 +1,4 @@
+import json
 import os
 import pickle
 import sys
@@ -7,13 +8,15 @@ import numpy as np
 import pandas as pd
 import igraph as ig
 
-from common import (
-    load_dump, reset_multi_proc_staging, wait_for_processes,
-    dump_object_for_proc, construct_arguments, collect_multi_proc_output
-)
+from pyspark.sql import functions as sf
+from pyspark.sql import types as st
+
+from common import reset_multi_proc_staging, MULTI_PROC_INPUT
 
 
-currency_rates = {
+SCHEMA_FEAT_UDF = st.StructType([st.StructField("features", st.StringType())])
+
+CURRENCY_RATES = {
     "jpy": np.float32(0.009487665410827868),
     "cny": np.float32(0.14930721887033868),
     "cad": np.float32(0.7579775434031815),
@@ -31,7 +34,7 @@ currency_rates = {
     "brl": np.float32(0.1771008654705292),
 }
 
-types = {
+FEATURE_TYPES = {
     "key": str,
     "num_source_or_target": np.uint16,
     "num_source_and_target": np.uint16,
@@ -108,7 +111,7 @@ def get_segments(source_column, target_column, data_in):
     return source_or_target, source_and_target, source_only, target_only
 
 
-def generate_features(df, group_id, graph_features=False, graph_obj=None):
+def generate_features(df, group_id, graph_features=False):
     source_or_target, source_and_target, source_only, target_only = get_segments(
         "source", "target", df
     )
@@ -155,7 +158,7 @@ def generate_features(df, group_id, graph_features=False, graph_obj=None):
     turnover = float(result[result["delta"] > 0]["delta"].sum())
     turnover_currency_norm = {}
     for key, value in turnover_currency.items():
-        turnover_currency_norm[key] = float((currency_rates[key] * value) / (turnover or 1))
+        turnover_currency_norm[key] = float((CURRENCY_RATES[key] * value) / (turnover or 1))
 
     features_row["turnover"] = turnover
     features_row.update(turnover_currency_norm)
@@ -173,10 +176,7 @@ def generate_features(df, group_id, graph_features=False, graph_obj=None):
     features_row["ts_weighted_std"] = weighted_std(exploded["ts"], exploded["amount"])
 
     if graph_features:
-        if graph_obj is None:
-            graph = ig.Graph.DataFrame(df[["source", "target"]], use_vids=False, directed=True)
-        else:
-            graph = graph_obj
+        graph = ig.Graph.DataFrame(df[["source", "target"]], use_vids=False, directed=True)
         features_row["assortativity_degree"] = graph.assortativity_degree(directed=True)
         features_row["assortativity_degree_ud"] = graph.assortativity_degree(directed=False)
         features_row["max_degree"] = max(graph.degree(mode="all"))
@@ -201,81 +201,74 @@ def generate_features(df, group_id, graph_features=False, graph_obj=None):
     return features_row
 
 
-def get_features_chunk(comms_chunk, graph, graph_features):
-    features_all = []
-    if graph_features:
-        for key_, group in comms_chunk:
-            sub_g = graph.induced_subgraph(group)
-            group = sub_g.get_edge_dataframe()
-            if group.empty:
-                continue
-            features_all.append(generate_features(group, key_, graph_features=graph_features, graph_obj=sub_g))
-    else:
-        for key_, group in comms_chunk:
-            features_all.append(generate_features(group, key_, graph_features=graph_features, graph_obj=None))
-    features_all = pd.DataFrame(features_all)
-    found_types = {k: v for k, v in types.items() if k in features_all.columns}
-    dump_object_for_proc(features_all.astype(found_types), False, pandas=True)
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NpEncoder, self).default(obj)
 
 
-def get_features_chunk_with_gf(chunk_loc, graph_loc):
-    return get_features_chunk(load_dump(chunk_loc), load_dump(graph_loc), True)
+def generate_features_udf_wrapper(graph_features):
+    def generate_features_udf(df):
+        row = df.iloc[0]
+        features = json.dumps(
+            generate_features(df, row["key"], graph_features=graph_features),
+            allow_nan=True, cls=NpEncoder,
+        )
+        return pd.DataFrame([{"features": features}])
+    return generate_features_udf
 
 
-def get_features_chunk_without_gf(chunk_loc):
-    return get_features_chunk(load_dump(chunk_loc), None, False)
+def generate_features_spark(communities, graph):
+    reset_multi_proc_staging()
+    chunk_size = 100_000
+    
+    df_comms = []
+    for index, (node, comm) in enumerate(communities):
+        df_comm = graph.induced_subgraph(comm).get_edge_dataframe()
+        if not df_comm.empty:
+            df_comm.loc[:, "key"] = node
+            df_comms.append(df_comm)
+        if not ((index + 1) % chunk_size):
+            pd.concat(df_comms, ignore_index=True).to_parquet(f"{MULTI_PROC_INPUT}{os.sep}{index + 1}.parquet")
+            df_comms = []
+    
+    if len(df_comms) > 1:
+        pd.concat(df_comms, ignore_index=True).to_parquet(f"{MULTI_PROC_INPUT}{os.sep}{index + 1}.parquet")
+    
+    del df_comms
 
 
-def get_features_multi_proc(chunks_locations, graph_location, proc, reset_staging=False):
-    if reset_staging:
-        reset_multi_proc_staging()
-    process_ids = set()
-    for chunk_location in chunks_locations:
-        process_id = str(uuid.uuid4())
-        args = construct_arguments(chunk_location)
-        if graph_location is not None:
-            args = construct_arguments(chunk_location, graph_location)
-        os.system(f"{sys.executable} spawn.py {process_id} {proc} {args} &")
-        process_ids = process_ids.union([process_id])
-    wait_for_processes(process_ids)
-    return collect_multi_proc_output(pandas=True)
+    response = spark.read.parquet(
+        str(MULTI_PROC_INPUT)
+    ).groupby("key").applyInPandas(generate_features_udf_wrapper(True), schema=SCHEMA_FEAT_UDF).toPandas()
+    
+    return pd.DataFrame(response["features"].apply(json.loads).tolist()).astype(FEATURE_TYPES)
 
 
-def get_edge_features(group_id, group):
-    src, tgt = group_id
+def get_edge_features_udf(group_id, group):
+    row = df.iloc[0]
+    src, tgt = row["source"], row["target"]
+    
     currency_turnover = (
-        group
+        df
         .groupby("source_currency")
         .agg({"source_amount": "sum"})
     ).to_dict()["source_amount"]
-    total = group["amount"].sum()
+    total = df["amount"].sum()
     currency_turnover = {k: v / total for k, v in currency_turnover.items()}
     row = {"source": src, "target": tgt, "total_amount": total}
     row.update(currency_turnover)
     format_turnover = (
-        group
+        df
         .groupby("format")
         .agg({"amount": "sum"})
     ).to_dict()["amount"]
     format_turnover = {k.lower().replace(" ", "_"): v / total for k, v in format_turnover.items()}
     row.update(format_turnover)
-    return row
-
-
-def get_edge_features_chunk(chunk_loc):
-    edge_features = []
-    for group_id, group in load_dump(chunk_loc):
-        edge_features.append(get_edge_features(group_id, group))
-    dump_object_for_proc(pd.DataFrame(edge_features), False, pandas=True)
     
-
-def get_edge_features_multi_proc(chunks_locations):
-    process_ids = set()
-    for chunk_location in chunks_locations:
-        process_id = str(uuid.uuid4())
-        args = construct_arguments(chunk_location)
-        os.system(f"{sys.executable} spawn.py {process_id} features.get_edge_features_chunk {args} &")
-        process_ids = process_ids.union([process_id])
-    wait_for_processes(process_ids)
-    return collect_multi_proc_output(pandas=True)
-    
+    return pd.DataFrame([json.dumps(row)], columns=["features"])
