@@ -223,7 +223,7 @@ def generate_features_udf_wrapper(graph_features):
     return generate_features_udf
 
 
-def generate_features_spark(communities, graph):
+def generate_features_spark(communities, graph, spark):
     reset_multi_proc_staging()
     chunk_size = 100_000
     
@@ -242,7 +242,6 @@ def generate_features_spark(communities, graph):
     
     del df_comms
 
-
     response = spark.read.parquet(
         str(MULTI_PROC_INPUT)
     ).groupby("key").applyInPandas(generate_features_udf_wrapper(True), schema=SCHEMA_FEAT_UDF).toPandas()
@@ -250,7 +249,7 @@ def generate_features_spark(communities, graph):
     return pd.DataFrame(response["features"].apply(json.loads).tolist()).astype(FEATURE_TYPES)
 
 
-def get_edge_features_udf(group_id, group):
+def get_edge_features_udf(df):
     row = df.iloc[0]
     src, tgt = row["source"], row["target"]
     

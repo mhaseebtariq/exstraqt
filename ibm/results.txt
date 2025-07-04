@@ -1,9 +1,11 @@
-HI-Small: 75.02 ±0.55   ~16%
-LI-Small: 35.07 ±2.69   ~24%
-HI-Medium: 69.79
-LI-Medium: 30.41
+HI-Small:   66.91 ±0.67
+LI-Small:   30.21 ±1.75
+HI-Medium:  
+LI-Medium:  
+HI-Large:   
+LI-Large:   
 
-Ethereum: 64.11 ±0.87   ~20%
+Ethereum: 64.11 ±0.87
 
 
 ts_min = data.select(sf.min("timestamp").alias("x")).collect()[0]["x"] - timedelta(minutes=1)
