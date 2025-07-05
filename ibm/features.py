@@ -11,7 +11,7 @@ import igraph as ig
 from pyspark.sql import functions as sf
 from pyspark.sql import types as st
 
-from common import reset_multi_proc_staging, MULTI_PROC_INPUT
+from common import reset_multi_proc_staging, MULTI_PROC_STAGING_LOCATION
 
 
 SCHEMA_FEAT_UDF = st.StructType([st.StructField("features", st.StringType())])
@@ -234,16 +234,16 @@ def generate_features_spark(communities, graph, spark):
             df_comm.loc[:, "key"] = node
             df_comms.append(df_comm)
         if not ((index + 1) % chunk_size):
-            pd.concat(df_comms, ignore_index=True).to_parquet(f"{MULTI_PROC_INPUT}{os.sep}{index + 1}.parquet")
+            pd.concat(df_comms, ignore_index=True).to_parquet(f"{MULTI_PROC_STAGING_LOCATION}{os.sep}{index + 1}.parquet")
             df_comms = []
     
     if len(df_comms) > 1:
-        pd.concat(df_comms, ignore_index=True).to_parquet(f"{MULTI_PROC_INPUT}{os.sep}{index + 1}.parquet")
+        pd.concat(df_comms, ignore_index=True).to_parquet(f"{MULTI_PROC_STAGING_LOCATION}{os.sep}{index + 1}.parquet")
     
     del df_comms
 
     response = spark.read.parquet(
-        str(MULTI_PROC_INPUT)
+        str(MULTI_PROC_STAGING_LOCATION)
     ).groupby("key").applyInPandas(generate_features_udf_wrapper(True), schema=SCHEMA_FEAT_UDF).toPandas()
     
     return pd.DataFrame(response["features"].apply(json.loads).tolist()).astype(FEATURE_TYPES)

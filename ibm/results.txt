@@ -1,7 +1,7 @@
 HI-Small:   66.91 ±0.67
 LI-Small:   30.21 ±1.75
 HI-Medium:  
-LI-Medium:  
+LI-Medium:  32.67 ±0.59
 HI-Large:   
 LI-Large:   
 
