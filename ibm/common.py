@@ -1,7 +1,9 @@
+import gc
 import os
 import pickle
 import random
 import shutil
+import sys
 import uuid
 from math import ceil
 from pathlib import Path
@@ -88,3 +90,23 @@ def get_weights(data_aggregated):
         axis=1,
     )
     return data_aggregated.loc[:, ["source", "target", "weight"]]
+
+
+def delete_large_vars(globals_ref, locals_ref, max_size_in_mb=1):
+    _ = gc.collect()
+    for key in list(globals_ref.keys()):
+        if isinstance(globals_ref[key], pd.DataFrame):
+            del globals_ref[key]
+            print(f"Deleted `global` DataFrame: {key}")
+        elif (sys.getsizeof(globals_ref[key]) / 1024**2) > max_size_in_mb:
+            del globals_ref[key]
+            print(f"Deleted `global` large object: {key}")
+    for key in list(locals_ref.keys()):
+        if isinstance(locals_ref[key], pd.DataFrame):
+            del locals_ref[key]
+            print(f"Deleted `local` DataFrame: {key}")
+        elif (sys.getsizeof(locals_ref) / 1024**2) > max_size_in_mb:
+            del locals_ref[key]
+            print(f"Deleted `local` large object: {key}")
+    _ = gc.collect()
+    return True

@@ -112,6 +112,7 @@ def get_segments(source_column, target_column, data_in):
 
 
 def generate_features(df, group_id, graph_features=False):
+    # TODO: This can be made much faster!
     source_or_target, source_and_target, source_only, target_only = get_segments(
         "source", "target", df
     )
