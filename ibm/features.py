@@ -261,7 +261,11 @@ def get_edge_features_udf(df):
     ).to_dict()["source_amount"]
     total = df["amount"].sum()
     currency_turnover = {k: v / total for k, v in currency_turnover.items()}
-    row = {"source": src, "target": tgt, "total_amount": total}
+    row = {
+        "source": src, "target": tgt, 
+        "total_amount": total, 
+        "related_for": df["max_ts"].max() - df["min_ts"].min()
+    }
     row.update(currency_turnover)
     format_turnover = (
         df

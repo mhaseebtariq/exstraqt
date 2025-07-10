@@ -26,4 +26,4 @@ G_COMM_PREFIX = "graph_comm_feat_"
 G_1HOP_PREFIX = "graph_1_hop_feat_"
 G_GLOB_PREFIX = "graph_global_"
 
-assert G_COMM_PREFIX != G_1HOP_PREFIX != G_GLOB_PREFIX
+assert G_FLOW_PREFIX != G_COMM_PREFIX != G_1HOP_PREFIX != G_GLOB_PREFIX

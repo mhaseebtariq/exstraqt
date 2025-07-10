@@ -1,5 +1,6 @@
 import os
 import pickle
+import random
 import sys
 import uuid
 
@@ -39,6 +40,7 @@ def get_communities_chunk(args):
 
 
 def get_communities_spark(nodes, graph, num_procs, spark):
+    random.shuffle(nodes)
     nodes_locations, params = create_workload_for_multi_proc(
         len(nodes), nodes, num_procs, graph, shuffle=True
     )
