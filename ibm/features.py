@@ -275,4 +275,4 @@ def get_edge_features_udf(df):
     format_turnover = {k.lower().replace(" ", "_"): v / total for k, v in format_turnover.items()}
     row.update(format_turnover)
     
-    return pd.DataFrame([json.dumps(row)], columns=["features"])
+    return pd.DataFrame([json.dumps(row, allow_nan=True, cls=NpEncoder)], columns=["features"])
