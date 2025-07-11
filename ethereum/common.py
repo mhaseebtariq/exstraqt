@@ -1,10 +1,10 @@
+import gc
 import os
 import pickle
 import random
 import shutil
-import time
+import sys
 import uuid
-from glob import glob
 from math import ceil
 from pathlib import Path
 
@@ -13,8 +13,7 @@ import psutil
 
 
 MULTI_PROC_ROOT = Path("multiprocessing")
-MULTI_PROC_INPUT = MULTI_PROC_ROOT / "input"
-MULTI_PROC_OUTPUT = MULTI_PROC_ROOT / "output"
+MULTI_PROC_STAGING_LOCATION = MULTI_PROC_ROOT / os.environ["EXT_DATA_TYPE_FOLDER"]
 OUTPUT_EXT = ".pickle"
 PROC_ARGS_SEPARATOR = "__0__"
 
@@ -24,14 +23,11 @@ def load_dump(loc):
         return pickle.load(f)
 
 
-def dump_object_for_proc(obj, is_input, pandas=False):
-    folder = MULTI_PROC_OUTPUT
-    if is_input:
-        folder = MULTI_PROC_INPUT        
+def dump_object_for_proc(obj, pandas=False):
     ext = OUTPUT_EXT
     if pandas:
         ext = ".parquet"
-    file_loc = folder / (str(uuid.uuid4()) + ext)
+    file_loc = MULTI_PROC_STAGING_LOCATION / (str(uuid.uuid4()) + ext)
     if pandas:
         obj.to_parquet(file_loc)
         return file_loc
@@ -41,9 +37,8 @@ def dump_object_for_proc(obj, is_input, pandas=False):
 
 
 def reset_multi_proc_staging():
-    shutil.rmtree(MULTI_PROC_ROOT, ignore_errors=True)
-    os.makedirs(MULTI_PROC_INPUT)
-    os.mkdir(MULTI_PROC_OUTPUT)
+    shutil.rmtree(MULTI_PROC_STAGING_LOCATION, ignore_errors=True)
+    os.makedirs(MULTI_PROC_STAGING_LOCATION)
 
     
 def create_workload_for_multi_proc(size, iterator, num_procs, *params, shuffle=False):
@@ -52,7 +47,7 @@ def create_workload_for_multi_proc(size, iterator, num_procs, *params, shuffle=F
     reset_multi_proc_staging()
     params_as_pickles = []
     for param in params:
-        params_as_pickles.append(dump_object_for_proc(param, True))
+        params_as_pickles.append(dump_object_for_proc(param))
     processed = 0
     iterator_chunk = []
     iterator_chunk_as_pickles = []
@@ -61,59 +56,57 @@ def create_workload_for_multi_proc(size, iterator, num_procs, *params, shuffle=F
         processed += 1
         iterator_chunk.append(item)
         if processed == chunk_size:
-            iterator_chunk_as_pickles.append(dump_object_for_proc(iterator_chunk, True))
+            iterator_chunk_as_pickles.append(dump_object_for_proc(iterator_chunk))
             processed = 0
             iterator_chunk = []
     if iterator_chunk:
-        iterator_chunk_as_pickles.append(dump_object_for_proc(iterator_chunk, True))
+        iterator_chunk_as_pickles.append(dump_object_for_proc(iterator_chunk))
     return iterator_chunk_as_pickles, params_as_pickles
 
 
-def collect_multi_proc_output(pandas=False):
-    if pandas:
-        return pd.read_parquet(MULTI_PROC_OUTPUT)
-    files = glob(f"{MULTI_PROC_OUTPUT}{os.sep}*{OUTPUT_EXT}")
-    output = []
-    for fl in files:
-        output.append(load_dump(fl))
-    return [x for y in output for x in y]
+def get_weights(data_aggregated):
+    source_totals = (
+        data_aggregated.groupby("source")
+        .agg({"amount": "sum"})["amount"]
+        .to_dict()
+    )
+    target_totals = (
+        data_aggregated.groupby("target")
+        .agg({"amount": "sum"})["amount"]
+        .to_dict()
+    )
+
+    data_aggregated.loc[:, "total_sent_by_source"] = data_aggregated.loc[
+        :, "source"
+    ].apply(lambda x: source_totals[x])
+    data_aggregated.loc[:, "total_received_by_target"] = data_aggregated.loc[
+        :, "target"
+    ].apply(lambda x: target_totals[x])
+    data_aggregated.loc[:, "weight"] = data_aggregated.apply(
+        lambda x: (
+            (x["amount"] / x["total_sent_by_source"])
+            + (x["amount"] / x["total_received_by_target"])
+        ),
+        axis=1,
+    )
+    return data_aggregated.loc[:, ["source", "target", "weight"]]
 
 
-def construct_arguments(*args):
-    return PROC_ARGS_SEPARATOR.join([str(x) for x in args])
-
-
-def load_arguments(args):
-    return args.split(PROC_ARGS_SEPARATOR)
-
-
-def get_processes(ids):
-    processes = []
-    for process in psutil.process_iter():
-        cmdline = []
-        try:
-            cmdline = process.cmdline()
-        except:  # noqa
-            pass
-        if ids.intersection(cmdline):
-            processes.append(process)
-    return processes
-
-
-def wait_for_processes(process_ids):
-    try:
-        while get_processes(process_ids):
-            time.sleep(5)
-    except KeyboardInterrupt:
-        for proc in get_processes(process_ids):
-            try:
-                proc.kill()
-            except psutil.NoSuchProcess:
-                pass
-    finally:
-        for proc in get_processes(process_ids):
-            try:
-                proc.kill()
-            except psutil.NoSuchProcess:
-                pass
-    
+def delete_large_vars(globals_ref, locals_ref, max_size_in_mb=1):
+    _ = gc.collect()
+    for key in list(globals_ref.keys()):
+        if isinstance(globals_ref[key], pd.DataFrame):
+            del globals_ref[key]
+            print(f"Deleted `global` DataFrame: {key}")
+        elif (sys.getsizeof(globals_ref[key]) / 1024**2) > max_size_in_mb:
+            del globals_ref[key]
+            print(f"Deleted `global` large object: {key}")
+    for key in list(locals_ref.keys()):
+        if isinstance(locals_ref[key], pd.DataFrame):
+            del locals_ref[key]
+            print(f"Deleted `local` DataFrame: {key}")
+        elif (sys.getsizeof(locals_ref) / 1024**2) > max_size_in_mb:
+            del locals_ref[key]
+            print(f"Deleted `local` large object: {key}")
+    _ = gc.collect()
+    return True

@@ -28,22 +28,20 @@ def get_top_n(sub_graph, queries):
 
 def get_communities_chunk(args):
     nodes_loc, graph_loc = args
-    nodes_chunk = load_dump(nodes_loc)
     graph_chunk = load_dump(graph_loc)
     communities_chunk = []
-    for node in nodes_chunk:
-        neighborhood = graph_chunk.neighborhood(node, order=2, mode="all", mindist=0)
-        neighborhood = {x["name"] for x in graph_chunk.vs(neighborhood)}
+    for node, neighborhood in load_dump(nodes_loc):
         sub_g = graph_chunk.induced_subgraph(neighborhood)
         communities_chunk.append((node, get_top_n(sub_g, [node])))
     return communities_chunk
 
 
-def get_communities_spark(nodes, graph, num_procs, spark):
-    random.shuffle(nodes)
+def get_communities_spark(nodes_neighborhoods, graph, num_procs, spark):
+    nodes_neighborhoods = list(nodes_neighborhoods.items())
     nodes_locations, params = create_workload_for_multi_proc(
-        len(nodes), nodes, num_procs, graph, shuffle=True
+        len(nodes_neighborhoods), nodes_neighborhoods, num_procs, graph, shuffle=True
     )
+    del nodes_neighborhoods
     graph_location = params[0]
     partitions = [(x, graph_location) for x in nodes_locations]
     return [

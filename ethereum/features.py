@@ -1,3 +1,4 @@
+import json
 import os
 import pickle
 import sys
@@ -7,23 +8,22 @@ import numpy as np
 import pandas as pd
 import igraph as ig
 
-from common import (
-    load_dump, reset_multi_proc_staging, wait_for_processes,
-    dump_object_for_proc, construct_arguments, collect_multi_proc_output
-)
+from pyspark.sql import functions as sf
+from pyspark.sql import types as st
 
-types = {
+from common import reset_multi_proc_staging, MULTI_PROC_STAGING_LOCATION
+
+
+SCHEMA_FEAT_UDF = st.StructType([st.StructField("features", st.StringType())])
+
+
+FEATURE_TYPES = {
     "key": str,
     "num_source_or_target": np.uint16,
     "num_source_and_target": np.uint16,
     "num_source_only": np.uint16,
     "num_target_only": np.uint16,
-    "num_timestamp_trx": np.uint16,
-    "zero_trx": np.uint16,
-    "non_zero_trx": np.uint16,
-    "total_trx": np.uint16,
-    "perc_zero_trx": np.float64,
-    "perc_timestamp_trx": np.float64,
+    "num_transactions": np.uint16,
     "turnover": np.uint64,
     "ts_range": np.uint32,
     "ts_std": np.float64,
@@ -35,9 +35,6 @@ types = {
     "max_degree": np.uint16,
     "max_degree_in": np.uint16,
     "max_degree_out": np.uint16,
-    "mean_degree": np.float16,
-    "mean_degree_in": np.float16,
-    "mean_degree_out": np.float16,
     "diameter": np.uint8,
 }
 
@@ -71,7 +68,8 @@ def get_segments(source_column, target_column, data_in):
     return source_or_target, source_and_target, source_only, target_only
 
 
-def generate_features(df, group_id, graph_features=False, graph_obj=None):
+def generate_features(df, group_id, graph_features=False):
+    # TODO: This can be made much faster!
     source_or_target, source_and_target, source_only, target_only = get_segments(
         "source", "target", df
     )
@@ -81,16 +79,9 @@ def generate_features(df, group_id, graph_features=False, graph_obj=None):
         "num_source_and_target": len(source_and_target),
         "num_source_only": len(source_only),
         "num_target_only": len(target_only),
-        "num_timestamp_trx": df.shape[0],
+        "num_transactions": df["num_transactions"].sum(),
     }
-    zero_trx = df[df["is_zero_transaction"]]["num_transactions"].sum()
-    non_zero_trx = df[~df["is_zero_transaction"]]["num_transactions"].sum()
-    features_row["zero_trx"] = zero_trx
-    features_row["non_zero_trx"] = non_zero_trx
-    features_row["total_trx"] = zero_trx + non_zero_trx
-    features_row["perc_zero_trx"] = zero_trx / features_row["total_trx"]
-    features_row["perc_timestamp_trx"] = features_row["num_timestamp_trx"] / features_row["total_trx"]
-    
+
     left = (
         df.loc[:, ["target", "amount_usd"]]
         .rename(columns={"target": "source"})
@@ -104,79 +95,73 @@ def generate_features(df, group_id, graph_features=False, graph_obj=None):
 
     features_row["turnover"] = turnover
 
-    features_row["ts_range"] = df["window_delta"].max() - df["window_delta"].min()
-    features_row["ts_std"] = df["window_delta"].std()
-    features_row["ts_weighted_mean"] = np.average(df["window_delta"], weights=df["amount_usd"])
-    features_row["ts_weighted_median"] = weighted_quantiles(
-        df["window_delta"].values, weights=df["amount_usd"].values, quantiles=0.5, interpolate=True
+    exploded = pd.DataFrame(
+        df["timestamps_amounts"].explode().tolist(), columns=["ts", "amount_usd"]
     )
-    features_row["ts_weighted_std"] = weighted_std(df["window_delta"], df["amount_usd"])
+
+    features_row["ts_range"] = exploded["ts"].max() - exploded["ts"].min()
+    features_row["ts_std"] = exploded["ts"].std()
+    features_row["ts_weighted_mean"] = np.average(exploded["ts"], weights=exploded["amount_usd"])
+    features_row["ts_weighted_median"] = weighted_quantiles(
+        exploded["ts"].values, weights=exploded["amount_usd"].values, quantiles=0.5, interpolate=True
+    )
+    features_row["ts_weighted_std"] = weighted_std(exploded["ts"], exploded["amount_usd"])
 
     if graph_features:
-        if graph_obj is None:
-            graph = ig.Graph.DataFrame(df[["source", "target"]], use_vids=False, directed=True)
-        else:
-            graph = graph_obj
+        graph = ig.Graph.DataFrame(df[["source", "target"]], use_vids=False, directed=True)
         features_row["assortativity_degree"] = graph.assortativity_degree(directed=True)
         features_row["assortativity_degree_ud"] = graph.assortativity_degree(directed=False)
-        degree_all = graph.degree(mode="all")
-        degree_in = graph.degree(mode="in")
-        degree_out = graph.degree(mode="out")
-        features_row["max_degree"] = max(degree_all)
-        features_row["max_degree_in"] = max(degree_in)
-        features_row["max_degree_out"] = max(degree_out)
-        features_row["mean_degree"] = np.mean(degree_all)
-        features_row["mean_degree_in"] = np.mean(degree_in)
-        features_row["mean_degree_out"] = np.mean(degree_out)
+        features_row["max_degree"] = max(graph.degree(mode="all"))
+        features_row["max_degree_in"] = max(graph.degree(mode="in"))
+        features_row["max_degree_out"] = max(graph.degree(mode="out"))
         features_row["diameter"] = graph.diameter(directed=True, unconn=True)
 
     return features_row
 
-def get_features_chunk(comms_chunk, graph, graph_features):
-    features_all = []
-    if graph_features:
-        for key_, group in comms_chunk:
-            sub_g = graph.induced_subgraph(group)
-            group = sub_g.get_edge_dataframe()
-            if group.empty:
-                continue
-            features_all.append(generate_features(group, key_, graph_features=graph_features, graph_obj=sub_g))
-    else:
-        for key_, group in comms_chunk:
-            features_all.append(generate_features(group, key_, graph_features=graph_features, graph_obj=None))
-    features_all = pd.DataFrame(features_all)
-    found_types = {k: v for k, v in types.items() if k in features_all.columns}
-    dump_object_for_proc(features_all.astype(found_types), False, pandas=True)
+
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NpEncoder, self).default(obj)
 
 
-def get_features_chunk_with_gf(chunk_loc, graph_loc):
-    return get_features_chunk(load_dump(chunk_loc), load_dump(graph_loc), True)
+def generate_features_udf_wrapper(graph_features):
+    def generate_features_udf(df):
+        row = df.iloc[0]
+        features = json.dumps(
+            generate_features(df, row["key"], graph_features=graph_features),
+            allow_nan=True, cls=NpEncoder,
+        )
+        return pd.DataFrame([{"features": features}])
+    return generate_features_udf
 
 
-def get_features_chunk_without_gf(chunk_loc):
-    return get_features_chunk(load_dump(chunk_loc), None, False)
+def generate_features_spark(communities, graph, spark):
+    reset_multi_proc_staging()
+    chunk_size = 100_000
+    
+    df_comms = []
+    for index, (node, comm) in enumerate(communities):
+        df_comm = graph.induced_subgraph(comm).get_edge_dataframe()
+        if not df_comm.empty:
+            df_comm.loc[:, "key"] = node
+            df_comms.append(df_comm)
+        if not ((index + 1) % chunk_size):
+            pd.concat(df_comms, ignore_index=True).to_parquet(f"{MULTI_PROC_STAGING_LOCATION}{os.sep}{index + 1}.parquet")
+            df_comms = []
+    
+    if len(df_comms) > 1:
+        pd.concat(df_comms, ignore_index=True).to_parquet(f"{MULTI_PROC_STAGING_LOCATION}{os.sep}{index + 1}.parquet")
+    
+    del df_comms
 
-
-def get_features_multi_proc(chunks_locations, graph_location, proc, reset_staging=False):
-    if reset_staging:
-        reset_multi_proc_staging()
-    process_ids = set()
-    for chunk_location in chunks_locations:
-        process_id = str(uuid.uuid4())
-        args = construct_arguments(chunk_location)
-        if graph_location is not None:
-            args = construct_arguments(chunk_location, graph_location)
-        os.system(f"{sys.executable} spawn.py {process_id} {proc} {args} &")
-        process_ids = process_ids.union([process_id])
-    wait_for_processes(process_ids)
-    return collect_multi_proc_output(pandas=True)
-
-
-def get_pov_features(group_id, group):
-    src, tgt = group_id
-    total = group["amount_usd"].sum()
-    row = {"source": src, "target": tgt, "total_amount_usd": total, "count_trx": len(group)}
-    ts = (group["timestamp"].astype(int) / 10**9).values
-    row["ts_range"] = ts.max() - ts.min()
-    row["ts_std"] = ts.std()
-    return row
+    response = spark.read.parquet(
+        str(MULTI_PROC_STAGING_LOCATION)
+    ).groupby("key").applyInPandas(generate_features_udf_wrapper(True), schema=SCHEMA_FEAT_UDF).toPandas()
+    
+    return pd.DataFrame(response["features"].apply(json.loads).tolist()).astype(FEATURE_TYPES)
