@@ -34,53 +34,6 @@ CURRENCY_RATES = {
     "brl": np.float32(0.1771008654705292),
 }
 
-FEATURE_TYPES = {
-    "key": str,
-    "num_source_or_target": np.uint16,
-    "num_source_and_target": np.uint16,
-    "num_source_only": np.uint16,
-    "num_target_only": np.uint16,
-    "num_transactions": np.uint16,
-    "num_currencies": np.uint16,
-    "num_source_or_target_bank": np.uint16,
-    "num_source_and_target_bank": np.uint16,
-    "num_source_only_bank": np.uint16,
-    "num_target_only_bank": np.uint16,
-    "turnover": np.uint64,
-    "ts_range": np.uint32,
-    "ts_std": np.float64,
-    "ts_weighted_mean": np.float64,
-    "ts_weighted_median": np.float64,
-    "ts_weighted_std": np.float64,
-    "assortativity_degree": np.float64,
-    "assortativity_degree_ud": np.float64,
-    "max_degree": np.uint16,
-    "max_degree_in": np.uint16,
-    "max_degree_out": np.uint16,
-    "diameter": np.uint8,
-    "assortativity_degree_bank": np.float64,
-    "assortativity_degree_bank_ud": np.float64,
-    "max_degree_bank": np.uint16,
-    "max_degree_in_bank": np.uint16,
-    "max_degree_out_bank": np.uint16,
-    "diameter_bank": np.uint8,
-    "usd": np.float32,
-    "btc": np.float32,
-    "chf": np.float32,
-    "gbp": np.float32,
-    "inr": np.float32,
-    "jpy": np.float32,
-    "rub": np.float32,
-    "aud": np.float32,
-    "mxn": np.float32,
-    "ils": np.float32,
-    "cad": np.float32,
-    "brl": np.float32,
-    "sar": np.float32,
-    "cny": np.float32,
-    "eur": np.float32,
-}
-
 
 def weighted_quantiles(values, weights, quantiles=0.5, interpolate=True):
     i = values.argsort()
@@ -108,16 +61,19 @@ def get_segments(source_column, target_column, data_in):
     source_and_target = sources.intersection(targets)
     source_only = sources.difference(targets)
     target_only = targets.difference(sources)
-    return source_or_target, source_and_target, source_only, target_only
+    return sources, targets, source_or_target, source_and_target, source_only, target_only
 
 
-def generate_features(df, group_id, graph_features=False):
+def generate_features(df, row, graph_features=False):
     # TODO: This can be made much faster!
-    source_or_target, source_and_target, source_only, target_only = get_segments(
+    sources, targets, source_or_target, source_and_target, source_only, target_only = get_segments(
         "source", "target", df
     )
+    node_name = row["key"]
     features_row = {
-        "key": group_id,
+        "key": node_name,
+        "num_sources": len(sources),
+        "num_targets": len(targets),
         "num_source_or_target": len(source_or_target),
         "num_source_and_target": len(source_and_target),
         "num_source_only": len(source_only),
@@ -125,49 +81,67 @@ def generate_features(df, group_id, graph_features=False):
         "num_transactions": df["num_transactions"].sum(),
         "num_currencies": df["source_currency"].nunique(),
     }
-    source_or_target, source_and_target, source_only, target_only = get_segments(
+
+    sources, targets, source_or_target, source_and_target, source_only, target_only = get_segments(
         "source_bank", "target_bank", df
     )
+    features_row["num_source_banks"] = len(sources)
+    features_row["num_target_banks"] = len(targets)
     features_row["num_source_or_target_bank"] = len(source_or_target)
     features_row["num_source_and_target_bank"] = len(source_and_target)
     features_row["num_source_only_bank"] = len(source_only)
     features_row["num_target_only_bank"] = len(target_only)
 
     left = (
-        df.loc[:, ["target", "source_currency", "source_amount"]]
+        df.loc[:, ["target", "source_currency", "amount"]]
         .rename(columns={"target": "source"})
         .groupby(["source", "source_currency"])
-        .agg({"source_amount": "sum"})
+        .agg({"amount": "sum"})
     )
-    right = df.groupby(["source", "source_currency"]).agg({"source_amount": "sum"})
+    right = df.groupby(["source", "source_currency"]).agg({"amount": "sum"})
     result = left.join(right, how="outer", lsuffix="_left").fillna(0).reset_index()
-    result.loc[:, "delta"] = result["source_amount_left"] - result["source_amount"]
+    result.loc[:, "delta"] = result["amount_left"] - result["amount"]
     turnover_currency = result[result["delta"] > 0].reset_index(drop=True)
     turnover_currency = (
         turnover_currency.groupby("source_currency").agg({"delta": "sum"}).to_dict()["delta"]
     )
 
-    left = (
-        df.loc[:, ["target", "amount"]]
-        .rename(columns={"target": "source"})
-        .groupby("source")
-        .agg({"amount": "sum"})
-    )
-    right = df.groupby("source").agg({"amount": "sum"})
+    agg = {"amount": "sum", "amount_weighted": "sum"}
+    columns = ["amount", "amount_weighted"]
+    left = df.loc[:, ["target"] + columns].rename(columns={"target": "source"}).groupby("source").agg(agg)
+    features_row["max_credit_edges"] = np.max(left["amount"])
+    features_row["mean_credit_edges"] = np.mean(left["amount"])
+    features_row["median_credit_edges"] = np.median(left["amount"])
+    features_row["std_credit_edges"] = np.std(left["amount"])
+    features_row["max_credit_edges_weighted"] = np.max(left["amount_weighted"])
+    features_row["mean_credit_edges_weighted"] = np.mean(left["amount_weighted"])
+    features_row["median_credit_edges_weighted"] = np.median(left["amount_weighted"])
+    features_row["std_credit_edges_weighted"] = np.std(left["amount_weighted"])
+    
+    right = df.loc[:, ["source"] + columns].groupby("source").agg(agg)
+    features_row["max_debit_edges"] = np.max(right["amount"])
+    features_row["mean_debit_edges"] = np.mean(right["amount"])
+    features_row["median_debit_edges"] = np.median(right["amount"])
+    features_row["std_debit_edges"] = np.std(right["amount"])
+    features_row["max_debit_edges_weighted"] = np.max(right["amount_weighted"])
+    features_row["mean_debit_edges_weighted"] = np.mean(right["amount_weighted"])
+    features_row["median_debit_edges_weighted"] = np.median(right["amount_weighted"])
+    features_row["std_debit_edges_weighted"] = np.std(right["amount_weighted"])
+    
     result = left.join(right, how="outer", lsuffix="_left").fillna(0).reset_index()
     result.loc[:, "delta"] = result["amount_left"] - result["amount"]
     turnover = float(result[result["delta"] > 0]["delta"].sum())
+    features_row["turnover"] = turnover
+
     turnover_currency_norm = {}
     for key, value in turnover_currency.items():
-        turnover_currency_norm[key] = float((CURRENCY_RATES[key] * value) / (turnover or 1))
+        turnover_currency_norm[key] = float((CURRENCY_RATES[key] * value) / turnover)
 
-    features_row["turnover"] = turnover
     features_row.update(turnover_currency_norm)
 
     exploded = pd.DataFrame(
         df["timestamps_amounts"].explode().tolist(), columns=["ts", "amount"]
     )
-
     features_row["ts_range"] = exploded["ts"].max() - exploded["ts"].min()
     features_row["ts_std"] = exploded["ts"].std()
     features_row["ts_weighted_mean"] = np.average(exploded["ts"], weights=exploded["amount"])
@@ -178,13 +152,17 @@ def generate_features(df, group_id, graph_features=False):
 
     if graph_features:
         graph = ig.Graph.DataFrame(df[["source", "target"]], use_vids=False, directed=True)
-        features_row["assortativity_degree"] = graph.assortativity_degree(directed=True)
+        features_row["assortativity_degree"]= graph.assortativity_degree(directed=True)
         features_row["assortativity_degree_ud"] = graph.assortativity_degree(directed=False)
         features_row["max_degree"] = max(graph.degree(mode="all"))
         features_row["max_degree_in"] = max(graph.degree(mode="in"))
         features_row["max_degree_out"] = max(graph.degree(mode="out"))
         features_row["diameter"] = graph.diameter(directed=True, unconn=True)
-    
+        features_row["diameter_ud"] = graph.diameter(directed=False, unconn=True)
+        features_row["density"] = graph.density(loops=False)
+        biconn_components, articulation_points = graph.biconnected_components(return_articulation_points=True)
+        features_row["num_biconn_components"] = len(biconn_components) 
+        features_row["num_articulation_points"] = len(articulation_points)
         graph = ig.Graph.DataFrame(
             df[["source_bank", "target_bank"]], use_vids=False, directed=True
         )
@@ -217,7 +195,7 @@ def generate_features_udf_wrapper(graph_features):
     def generate_features_udf(df):
         row = df.iloc[0]
         features = json.dumps(
-            generate_features(df, row["key"], graph_features=graph_features),
+            generate_features(df, row, graph_features=graph_features),
             allow_nan=True, cls=NpEncoder,
         )
         return pd.DataFrame([{"features": features}])
@@ -229,25 +207,34 @@ def generate_features_spark(communities, graph, spark):
     chunk_size = 100_000
     
     df_comms = []
+    partitions = 0
     for index, (node, comm) in enumerate(communities):
-        df_comm = graph.induced_subgraph(comm).get_edge_dataframe()
+        sub_g = graph.induced_subgraph(comm)
+        df_comm = sub_g.get_edge_dataframe()
         if not df_comm.empty:
             df_comm.loc[:, "key"] = node
             df_comms.append(df_comm)
         if not ((index + 1) % chunk_size):
+            partitions += 1
             pd.concat(df_comms, ignore_index=True).to_parquet(f"{MULTI_PROC_STAGING_LOCATION}{os.sep}{index + 1}.parquet")
             df_comms = []
     
     if len(df_comms) > 1:
+        partitions += 1
         pd.concat(df_comms, ignore_index=True).to_parquet(f"{MULTI_PROC_STAGING_LOCATION}{os.sep}{index + 1}.parquet")
     
     del df_comms
 
+    partitions *= 6
+    partitions = (partitions % os.cpu_count()) + partitions
+
     response = spark.read.parquet(
         str(MULTI_PROC_STAGING_LOCATION)
-    ).groupby("key").applyInPandas(generate_features_udf_wrapper(True), schema=SCHEMA_FEAT_UDF).toPandas()
+    ).repartition(int(partitions), "key").groupby("key").applyInPandas(
+        generate_features_udf_wrapper(True), schema=SCHEMA_FEAT_UDF
+    ).toPandas()
     
-    return pd.DataFrame(response["features"].apply(json.loads).tolist()).astype(FEATURE_TYPES)
+    return pd.DataFrame(response["features"].apply(json.loads).tolist())
 
 
 def get_edge_features_udf(df):

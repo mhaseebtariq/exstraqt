@@ -1,4 +1,4 @@
-HI-Small:   66.91 ±0.67
+HI-Small:   66.98 ±0.34 ->  Uplift of 3.4%
 LI-Small:   30.21 ±1.75
 HI-Medium:  
 LI-Medium:  32.67 ±0.59
@@ -14,6 +14,5 @@ source-x -> [target-y  source-y] -> target-z
 target-y <- [source-z  target-z] <- source-x
 
 
-source-x -> target-z -> target-y
-
+source-x -> target-z -> target-y, 0.5 (7) , 0.1 (18) , 0.05 (24) , 0.025 (49) , 0.01 (96) , 0.005 (205) , 0.001 (810)
 

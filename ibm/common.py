@@ -65,6 +65,7 @@ def create_workload_for_multi_proc(size, iterator, num_procs, *params, shuffle=F
 
 
 def get_weights(data_aggregated):
+    data_aggregated = data_aggregated.copy(deep=True)
     source_totals = (
         data_aggregated.groupby("source")
         .agg({"amount": "sum"})["amount"]
