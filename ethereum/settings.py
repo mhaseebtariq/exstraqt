@@ -3,7 +3,6 @@ import os
 MAIN_DATA_FILE = os.path.join(os.path.curdir, "data")
 INPUT_GRAPH_FILE = os.path.join(MAIN_DATA_FILE, "MulDiGraph.pkl")
 INPUT_DATA_FILE = os.path.join(MAIN_DATA_FILE, "data.parquet")
-INPUT_DATA_ORIG_FILE = os.path.join(MAIN_DATA_FILE, "data_orig.parquet")
 INPUT_RATES_FILE = os.path.join(MAIN_DATA_FILE, "rates.csv")
 
 G_FLOW_PREFIX = "graph_flow_feat_"

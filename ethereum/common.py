@@ -65,14 +65,15 @@ def create_workload_for_multi_proc(size, iterator, num_procs, *params, shuffle=F
 
 
 def get_weights(data_aggregated):
+    data_aggregated = data_aggregated.copy(deep=True)
     source_totals = (
         data_aggregated.groupby("source")
-        .agg({"amount": "sum"})["amount"]
+        .agg({"amount_usd": "sum"})["amount_usd"]
         .to_dict()
     )
     target_totals = (
         data_aggregated.groupby("target")
-        .agg({"amount": "sum"})["amount"]
+        .agg({"amount_usd": "sum"})["amount_usd"]
         .to_dict()
     )
 
@@ -84,8 +85,8 @@ def get_weights(data_aggregated):
     ].apply(lambda x: target_totals[x])
     data_aggregated.loc[:, "weight"] = data_aggregated.apply(
         lambda x: (
-            (x["amount"] / x["total_sent_by_source"])
-            + (x["amount"] / x["total_received_by_target"])
+            (x["amount_usd"] / x["total_sent_by_source"])
+            + (x["amount_usd"] / x["total_received_by_target"])
         ),
         axis=1,
     )
