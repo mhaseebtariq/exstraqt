@@ -219,7 +219,7 @@ def generate_features_spark(communities, graph, spark):
             pd.concat(df_comms, ignore_index=True).to_parquet(f"{MULTI_PROC_STAGING_LOCATION}{os.sep}{index + 1}.parquet")
             df_comms = []
     
-    if len(df_comms) > 1:
+    if len(df_comms) > 0:
         partitions += 1
         pd.concat(df_comms, ignore_index=True).to_parquet(f"{MULTI_PROC_STAGING_LOCATION}{os.sep}{index + 1}.parquet")
     
