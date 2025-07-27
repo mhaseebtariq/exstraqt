@@ -9,7 +9,7 @@ FILE_SIZE = "Small"
 
 assert FILE_SIZE in VALID_SIZES
 ILLICIT_TYPE = "HI" if HIGH_ILLICIT else "LI"
-MAIN_LOCATION = os.path.join(os.path.curdir, "synthetic-data")
+MAIN_LOCATION = os.path.join(os.path.curdir, "data")
 DATA_FILE = os.path.join(MAIN_LOCATION, f"{ILLICIT_TYPE}-{FILE_SIZE}_Trans.csv")
 PATTERNS_FILE = os.path.join(MAIN_LOCATION, f"{ILLICIT_TYPE}-{FILE_SIZE}_Patterns.txt")
 
