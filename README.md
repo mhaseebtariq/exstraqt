@@ -1,5 +1,5 @@
 # ExSTraQt
-### **Ex**tract **S**uspicious **Tra**nsactions with **Q**uasi-**t**emporal (Graph Modeling)
+**Ex**tract **S**uspicious **Tra**nsactions with **Q**uasi-**t**emporal (Graph Modeling)
 
 A supervised machine learning framework for identifying money laundering transactions in bank data.
 
