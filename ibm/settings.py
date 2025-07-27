@@ -4,7 +4,7 @@ import os
 TIMESTAMP_FORMAT = "yyyy/MM/dd HH:mm"
 VALID_SIZES = ["Small", "Medium", "Large"]
 
-HIGH_ILLICIT = True
+HIGH_ILLICIT = False
 FILE_SIZE = "Small"
 
 assert FILE_SIZE in VALID_SIZES
