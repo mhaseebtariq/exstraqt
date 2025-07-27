@@ -12,4 +12,3 @@ leidenalg==0.10.2
 networkx==3.5
 matplotlib==3.10.3
 seaborn==0.13.2
-
