@@ -1,0 +1,8 @@
+# conda create -n exstraqt-prepare-data python=3.9.19
+
+jupyterlab==4.4.5
+numpy==2.0.2
+pandas==2.3.1
+pyarrow==21.0.0
+pyspark==4.0.0
+networkx==3.2.1

@@ -1,5 +1,0 @@
-# conda create -n exstraqt-prepare python=3.9.19
-numpy
-pandas
-pyspark
-jupyterlab==4.4.2
