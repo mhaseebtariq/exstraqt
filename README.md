@@ -7,7 +7,7 @@ A supervised machine learning framework for identifying money laundering transac
 * Important NOTES:
   * `1_prepare_input.ipynb` works best with Python 3.9.19
   * The rest of the notebooks work best with Python 3.11.8
-* Make sure that all the relevant open-source datasets are downloaded
+* Make sure that all the relevant open-source datasets are downloaded to `./data/`
   * https://www.kaggle.com/datasets/xblock/ethereum-phishing-transaction-network
   * https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml
 * Activate the relevant Python or Conda environment
