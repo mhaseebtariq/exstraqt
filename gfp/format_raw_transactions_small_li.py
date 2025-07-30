@@ -22,7 +22,7 @@ import time
 
 # Raw input transactions
 raw_transaction_path = "./aml-demo-data/LI-Small_Trans.csv"
-formatted_data_path = "./aml-demo-data/out_dir_small_hi/"
+formatted_data_path = "./aml-demo-data/out_dir_small_li/"
 
 # Formatted transactions
 out_path = formatted_data_path + "formatted_transactions.csv"
