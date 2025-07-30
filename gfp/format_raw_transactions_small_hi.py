@@ -12,34 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from snapml import GraphFeaturePreprocessor
-import numpy as np
+import time
+
 import pandas as pd
 from datetime import datetime
-import os
-import csv
-import time
 
 # Raw input transactions
 raw_transaction_path = "./aml-demo-data/HI-Small_Trans.csv"
 formatted_data_path = "./aml-demo-data/out_dir_small_hi/"
-
 # Formatted transactions
 out_path = formatted_data_path + "formatted_transactions.csv"
-
-# Formatted test, train, and transactions to be preloaded
-n_test = 863901
-n_preload = 1000000
-test_trans_path = formatted_data_path + "aml-hi-small_test_trans.csv"
-train_trans_path = formatted_data_path + "aml-hi-small_train_trans.csv"
-test_labels_path = formatted_data_path + "aml-hi-small_test_labels.csv"
-train_labels_path = formatted_data_path + "aml-hi-small_train_labels.csv"
-preload_trans_path = formatted_data_path + "aml-hi-small_preload_trans.csv"
-
-# Formatting information
-acc_map_path = formatted_data_path + "account_mapping.csv"
-format_map_path = formatted_data_path + "payment_format_mapping.csv"
-currency_map_path = formatted_data_path + "currency_format_mapping.csv"
 
 #######################################################################################################
 
@@ -85,7 +67,7 @@ def convert_to_dolars(amount, currency):
 
 ## Utility function
 def print_dict_to_csv(d, filename):
-    with open(filename, 'w') as csv_file:  
+    with open(filename, "w") as csv_file:  
         writer = csv.writer(csv_file)
         for key, value in d.items():
             writer.writerow([key, value])
@@ -108,7 +90,7 @@ t0 = time.time()
 for i in range(n_rows):
     if (i+1) % 50000 == 0:
         print("Processed ", i+1 ," transactions", flush=True)
-    dt = datetime.strptime(raw['Timestamp'].iloc[i], '%Y/%m/%d %H:%M')
+    dt = datetime.strptime(raw["Timestamp"].iloc[i], "%Y/%m/%d %H:%M")
 
     if firstTs is None:
         startTime = datetime(dt.year, dt.month, dt.day)
@@ -167,45 +149,14 @@ for i in range(n_rows):
     
 t1 = time.time()
     
-print("Done in ", (t1-t0), ' s')
-    
-# printing currency and payment format mapping
-print_dict_to_csv(currency, currency_map_path)
-print(currency)
-
-print_dict_to_csv(paymentFormat, format_map_path)
-print(paymentFormat)
-
-# Printing account mapping
-df_acc_map = pd.DataFrame.from_dict(account_mapping) 
-df_acc_map.to_csv(acc_map_path, index=False)
+print("Done in ", (t1-t0), " s")
 
 # printing formatted transactions
 df_trans = pd.DataFrame.from_dict(formatted_transactions)
-df_trans = df_trans.sort_values(by=['Timestamp', 'EdgeID'])
+del formatted_transactions
+df_trans = df_trans.sort_values(by=["Timestamp", "EdgeID"])
 df_trans.to_csv(out_path, index=False)
-
-# Dividing into train, test, and preload transactions
-df_test = df_trans[-n_test:]
-df_train = df_trans[:-n_test]
-df_preload = df_train[-n_preload:]
-
-# Extract labels
-df_test_labels = df_test["Is Laundering"]
-df_train_labels = df_test["Is Laundering"]
-
-# Drop labels
-df_test = df_test.drop('Is Laundering', axis=1)
-df_train = df_train.drop('Is Laundering', axis=1)
-df_preload = df_preload.drop('Is Laundering', axis=1)
-
-# Write the files
-df_test.to_csv(test_trans_path, index=False)
-df_train.to_csv(train_trans_path, index=False)
-df_preload.to_csv(preload_trans_path, index=False)
-df_test_labels.to_csv(test_labels_path, index=False)
-df_train_labels.to_csv(train_labels_path, index=False)
 
 t2 = time.time()
 
-print("Done in ", (t2-t0), ' s')
+print("Done in ", (t2-t0), " s")
