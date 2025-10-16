@@ -11,6 +11,7 @@ from pathlib import Path
 import pandas as pd
 import psutil
 
+random.seed(42)
 
 MULTI_PROC_ROOT = Path("multiprocessing")
 MULTI_PROC_STAGING_LOCATION = MULTI_PROC_ROOT / os.environ["EXT_DATA_TYPE_FOLDER"]

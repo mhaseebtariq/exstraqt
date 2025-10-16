@@ -1,6 +1,5 @@
 import os
 import pickle
-import random
 import sys
 import uuid
 
@@ -41,7 +40,7 @@ def get_communities_chunk(args):
 
 
 def get_communities_spark(queries, graph, num_procs, spark, order, mode, threshold, weight_column):
-    queries = list(queries.items())
+    queries = sorted(queries.items(), key=lambda x: x[0])
     queries_locs, params = create_workload_for_multi_proc(len(queries), queries, num_procs, graph, shuffle=True)
     del queries
     graph_location = params[0]

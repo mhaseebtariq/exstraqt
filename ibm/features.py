@@ -11,7 +11,7 @@ import igraph as ig
 from pyspark.sql import functions as sf
 from pyspark.sql import types as st
 
-from common import reset_multi_proc_staging, MULTI_PROC_STAGING_LOCATION
+from common import reset_multi_proc_staging, load_dump, create_workload_for_multi_proc, MULTI_PROC_STAGING_LOCATION
 
 
 SCHEMA_FEAT_UDF = st.StructType([st.StructField("features", st.StringType())])
@@ -202,35 +202,57 @@ def generate_features_udf_wrapper(graph_features):
     return generate_features_udf
 
 
-def generate_features_spark(communities, graph, spark):
-    reset_multi_proc_staging()
-    chunk_size = 100_000
-    
+def save_comm_transactions(args):
+    graph_loc, comms_loc = args
+    graph = load_dump(graph_loc)
     df_comms = []
-    partitions = 0
-    for index, (node, comm) in enumerate(communities):
+    for node, comm in load_dump(comms_loc):
         sub_g = graph.induced_subgraph(comm)
         df_comm = sub_g.get_edge_dataframe()
         if not df_comm.empty:
+            df_vert = sub_g.get_vertex_dataframe()
+            df_comm.loc[:, "src"] = df_comm["source"].apply(lambda x: df_vert.loc[x, "name"])
+            df_comm.loc[:, "tgt"] = df_comm["target"].apply(lambda x: df_vert.loc[x, "name"])
+            del df_comm["source"]
+            del df_comm["target"]
+            df_comm = df_comm.rename(columns={"src": "source", "tgt": "target"})
             df_comm.loc[:, "key"] = node
-            df_comms.append(df_comm)
-        if not ((index + 1) % chunk_size):
-            partitions += 1
-            pd.concat(df_comms, ignore_index=True).to_parquet(f"{MULTI_PROC_STAGING_LOCATION}{os.sep}{index + 1}.parquet")
-            df_comms = []
-    
-    if len(df_comms) > 0:
-        partitions += 1
-        pd.concat(df_comms, ignore_index=True).to_parquet(f"{MULTI_PROC_STAGING_LOCATION}{os.sep}{index + 1}.parquet")
-    
-    del df_comms
+            df_comms.append(df_comm.copy(deep=True))
+    if df_comms:
+        pd.concat(
+            df_comms, ignore_index=True
+        ).to_parquet(f"{MULTI_PROC_STAGING_LOCATION}{os.sep}{uuid.uuid4()}.parquet")
 
-    partitions *= 6
-    partitions = (partitions % os.cpu_count()) + partitions
 
-    response = spark.read.parquet(
-        str(MULTI_PROC_STAGING_LOCATION)
-    ).repartition(int(partitions), "key").groupby("key").applyInPandas(
+def generate_features_spark(communities, graph_data, spark, num_cores=os.cpu_count()):
+    reset_multi_proc_staging()
+    chunk_size = 100_000
+
+    graph = ig.Graph.DataFrame(graph_data.loc[:, ["source", "target"]], use_vids=False, directed=True)
+
+    num_procs = int((np.floor((len(communities) / chunk_size) / num_cores) + 1) * num_cores)
+    comms_locs, params = create_workload_for_multi_proc(len(communities), communities, num_procs, graph, shuffle=True)
+
+    del graph
+    del communities
+    
+    comms_partitions = [(params[0], x) for x in comms_locs]
+
+    spark.sparkContext.parallelize(comms_partitions, len(comms_partitions)).map(save_comm_transactions).collect()
+
+    for temp_loc in comms_locs + params:
+        os.remove(temp_loc)
+
+    graph_data = spark.createDataFrame(graph_data).withColumnRenamed("source", "src").withColumnRenamed("target", "trg")
+    community_transactions = spark.read.parquet(str(MULTI_PROC_STAGING_LOCATION))
+    community_transactions = community_transactions.join(
+        graph_data,
+        (community_transactions["source"] == graph_data["src"]) &
+        (community_transactions["target"] == graph_data["trg"]),
+        how="left"
+    ).drop("src", "trg")
+
+    response = community_transactions.groupby("key").applyInPandas(
         generate_features_udf_wrapper(True), schema=SCHEMA_FEAT_UDF
     ).toPandas()
     
