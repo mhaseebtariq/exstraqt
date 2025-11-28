@@ -1,12 +1,12 @@
 # ExSTraQt
 [**Ex**tract **S**uspicious **Tra**nsactions with **Q**uasi-**t**emporal (Graph Modeling)]
-
 A supervised machine learning framework for identifying money laundering transactions in bank data.
 
 ## Setup:
 * Important NOTES:
-  * `1_prepare_input.ipynb` works best with Python 3.9.19
+  * `1_prepare_input_<size>.ipynb` works best with Python 3.9.19
   * The rest of the notebooks work best with Python 3.11.8
+  * Use `2_model_wrapper.ipynb` to generate outputs with different seeds
 * Make sure that all the relevant open-source datasets are downloaded to `./data/`
   * https://www.kaggle.com/datasets/xblock/ethereum-phishing-transaction-network
   * https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml
