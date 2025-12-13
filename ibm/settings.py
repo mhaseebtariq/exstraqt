@@ -4,8 +4,8 @@ import os
 TIMESTAMP_FORMAT = "yyyy/MM/dd HH:mm"
 VALID_SIZES = ["Small", "Medium", "Large"]
 
-HIGH_ILLICIT = bool(int(os.environ.get("EXSTRAQT_HIGH_ILLICIT", 1)))
-FILE_SIZE = os.environ.get("EXSTRAQT_FILE_SIZE", "Small")
+HIGH_ILLICIT = bool(int(os.environ.get("EXSTRAQT_HIGH_ILLICIT", 0)))
+FILE_SIZE = os.environ.get("EXSTRAQT_FILE_SIZE", "Large")
 
 assert FILE_SIZE in VALID_SIZES
 ILLICIT_TYPE = "HI" if HIGH_ILLICIT else "LI"
