@@ -1,6 +1,6 @@
 # conda create -n exstraqt python=3.11.8
 
-jupyterlab==4.4.8
+jupyterlab>=4.5.7
 numpy==2.3.2
 pandas==2.3.3
 pyarrow==21.0.0
